@@ -62,7 +62,7 @@ class OWLViTDetector:
             target_sizes = torch.tensor([image.size[::-1]]).to(self.device)
             
             # Post-process outputs
-            results = self.processor.post_process_object_detection(
+            results = self.processor.image_processor.post_process_object_detection(
                 outputs=outputs, target_sizes=target_sizes, threshold=0.0
             )[0] # get results for the first (and only) image in batch
             
