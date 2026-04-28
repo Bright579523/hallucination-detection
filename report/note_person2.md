@@ -1,0 +1,306 @@
+# NOTE PERSON 2 — MODEL ENGINEER
+  Prompt Hallucination Detection in Open-Vocabulary Object Detection
+# THAI VERSION (ภาษาไทย)
+---
+## 1. บทบาทและความรับผิดชอบ
+---
+Person 2 รับบทบาทเป็น Model Engineer ซึ่งเป็นผู้รับผิดชอบในการโหลดโมเดล
+Open-Vocabulary Object Detection และสั่งให้โมเดลประมวลผลภาพทั้งหมดในชุดข้อมูล
+ที่ Person 1 สร้างไว้ (Inference Pipeline) เพื่อดึงค่า Bounding Box
+(ตำแหน่งวัตถุในภาพ) และ Confidence Score (คะแนนความมั่นใจของโมเดล)
+ออกมาเป็นไฟล์ CSV ให้ Person 3 และ 4 นำไปวิเคราะห์ต่อ
+ไฟล์ที่รับผิดชอบ:
+  - models/detector.py        สคริปต์ Inference Pipeline สำหรับ OWL-ViT
+  - requirements.txt (อัปเดต) เพิ่ม tqdm สำหรับ Progress Bar
+  - notebooks/colab_runner.ipynb (อัปเดต) เพิ่ม Step 5-7
+---
+## 2. การเลือกโมเดล (Model Selection)
+---
+โปรเจกต์นี้เลือกใช้โมเดล OWL-ViT (Open-World Localization Vision Transformer)
+รุ่น google/owlvit-base-patch32 จาก HuggingFace Model Hub
+  ชื่อโมเดล    : OWL-ViT (Vision Transformer for Open-World Localization)
+  ผู้พัฒนา     : Google Research
+  รุ่นที่ใช้    : google/owlvit-base-patch32
+  ประเภท       : Open-Vocabulary Object Detection
+  แหล่งที่มา   : HuggingFace Transformers Library
+  ขนาดโมเดล    : ~412 MB (Weights)
+  Input        : ภาพ (Image) + ข้อความ (Text Prompt)
+  Output       : Bounding Box + Confidence Score
+เหตุผลที่เลือก OWL-ViT:
+  - เป็นโมเดล Open-Vocabulary ที่สามารถตรวจจับวัตถุจากคำอธิบายข้อความ
+    (Text Prompt) ได้โดยไม่จำกัดเฉพาะ Class ที่เทรนมา ซึ่งเป็นจุดเริ่มต้น
+    ที่ทำให้เกิดปัญหา Hallucination
+  - มี Pre-trained Weights พร้อมใช้งานบน HuggingFace ทำให้ไม่ต้อง
+    Fine-tune เอง (Inference-only Strategy)
+  - รองรับ GPU (CUDA) สำหรับการประมวลผลขนาดใหญ่บน Google Colab
+  - มีเอกสารและชุมชนผู้ใช้งานที่ครบถ้วน
+---
+## 3. สถาปัตยกรรมของโมเดล (Model Architecture)
+---
+OWL-ViT ทำงานโดยอาศัยหลักการ Vision-Language Alignment:
+  ภาพ (Image) --> ViT Encoder --> Image Embeddings --+
+                                                      |--> Matching --> Bounding Box
+  Prompt (Text) --> Text Encoder --> Text Embeddings -+              --> Confidence Score
+ขั้นตอนการทำงาน:
+## 1. Image Encoder (ViT):
+     แปลงภาพเป็น Feature Vector (Image Embedding) โดยใช้ Vision Transformer
+     ตัดภาพออกเป็น Patch ขนาด 32x32 พิกเซล
+## 2. Text Encoder:
+     แปลง Text Prompt เป็น Feature Vector (Text Embedding)
+## 3. Matching & Detection:
+     เปรียบเทียบ Image Embedding กับ Text Embedding เพื่อหาตำแหน่ง
+     ในภาพที่ "ตรง" กับ Prompt มากที่สุด แล้วสร้าง Bounding Box
+     พร้อม Confidence Score
+---
+## 4. การออกแบบ Inference Pipeline
+---
+4.1 Class OWLViTDetector
+  ไฟล์ models/detector.py ถูกออกแบบเป็น Class OWLViTDetector
+  ที่ห่อหุ้ม (Encapsulate) ทุกขั้นตอนการทำงานของโมเดล:
+  Method         หน้าที่
+  -------------- ----------------------------------------------------------
+  __init__()     โหลดโมเดลและ Processor จาก HuggingFace
+                 พร้อมตรวจสอบ GPU/CPU อัตโนมัติ
+  detect()       รับภาพ 1 ภาพ + Prompt 1 ข้อความ แล้วคืนค่า
+                 Confidence Score สูงสุดและ Bounding Box
+4.2 Function process_dataset()
+  ฟังก์ชันนี้ทำหน้าที่เป็นตัวจัดการ Batch Processing:
+## 1. อ่านไฟล์ CSV จาก Person 1 (hard_negative_dataset.csv)
+## 2. วนลูปเรียก detect() ทีละภาพ พร้อมแสดง Progress Bar (tqdm)
+## 3. เก็บผลลัพธ์ (Confidence Score + Bounding Box) ลงในคอลัมน์ใหม่
+## 4. เซฟผลลัพธ์ทั้งหมดเป็นไฟล์ CSV ใหม่ (full_detection_results.csv)
+4.3 การจัดการ Device (GPU/CPU)
+  self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+  โค้ดตรวจสอบอัตโนมัติว่าเครื่องมี GPU หรือไม่:
+    Google Colab (T4 GPU) : ใช้ cuda  ~10-20 นาที สำหรับ 5,000 ภาพ
+    Local (CPU)           : ใช้ cpu   ~3-4 ชั่วโมง เหมาะสำหรับทดสอบ
+4.4 โหมดการทำงาน
+  โหมด     คำสั่ง          Input CSV                   Output CSV
+  -------- --------------- --------------------------- ---------------------------
+  mockup   --mode mockup   mockup_dataset.csv (10)     mockup_detection_results.csv
+  full     --mode full     hard_negative_dataset.csv   full_detection_results.csv
+---
+## 5. Output Schema (โครงสร้างผลลัพธ์)
+---
+ไฟล์ full_detection_results.csv เพิ่ม 2 คอลัมน์จาก Person 1:
+  คอลัมน์        ประเภท             ที่มา      คำอธิบาย
+  -------------- ------------------ ---------- ----------------------------
+  image_id       int                Person 1   รหัสภาพจาก COCO
+  image_path     str                Person 1   ตำแหน่งไฟล์ภาพ
+  prompt         str                Person 1   คำสั่ง Prompt
+  true_label     int (0/1)          Person 1   เฉลย (0=จริง, 1=หลอน)
+  supercategory  str                Person 1   กลุ่มใหญ่ COCO
+  negative_type  str                Person 1   ประเภทตัวอย่าง
+  pred_score     float (0.0-1.0)    Person 2   คะแนนความมั่นใจสูงสุดจาก OWL-ViT
+  pred_box       list [x1,y1,x2,y2] Person 2   พิกัด Bounding Box ที่มั่นใจที่สุด
+  pred_score -> Person 3 ใช้ใน threshold_verifier.py
+  pred_box   -> Person 3 ใช้ใน clip_verifier.py เพื่อ Crop ภาพ
+---
+## 6. บันทึกการแก้ไขปัญหา (Bug Fix Log)
+---
+  ปัญหา:
+    'OwlViTProcessor' has no attribute 'post_process_object_detection'
+  สาเหตุ:
+    API ของ HuggingFace Transformers บน Colab ต่างจากเอกสาร
+    Method post_process_object_detection อยู่บน image_processor
+    ไม่ใช่บน processor ตัวหลัก
+  วิธีแก้:
+    เปลี่ยนจาก:
+      self.processor.post_process_object_detection(...)
+    เป็น:
+      self.processor.image_processor.post_process_object_detection(...)
+  ---
+  ปัญหา:
+    Using device: cpu (ช้ามาก ประมาณ 4 ชั่วโมง)
+  สาเหตุ:
+    Colab Runtime ไม่ได้เลือก GPU
+  วิธีแก้:
+    เปลี่ยน Runtime Type เป็น T4 GPU ผ่านเมนู
+    Runtime -> Change runtime type -> T4 GPU
+---
+## 7. สิ่งที่ส่งมอบ (Deliverables)
+---
+  ไฟล์                              สถานะ         คำอธิบาย
+  --------------------------------- ------------- ----------------------------
+  models/detector.py                เสร็จสมบูรณ์  OWL-ViT Inference Pipeline
+  requirements.txt (อัปเดต)         เสร็จสมบูรณ์  เพิ่ม tqdm>=4.65.0
+  notebooks/colab_runner.ipynb      เสร็จสมบูรณ์  เพิ่ม Step 5-7 + Save/Restore
+---
+## 8. ข้อพิจารณาเรื่องประสิทธิภาพ (Performance Considerations)
+---
+  Post-processing Threshold ที่ 0.0:
+    ตั้งไว้ที่ 0.0 เพื่อเก็บผลลัพธ์ทุก Prediction แม้จะมี Confidence ต่ำมาก
+    เพราะต้องการให้ Person 3 (Verifier) เป็นผู้ตัดสินใจเอง
+    ไม่ตัดข้อมูลออกก่อน
+  Best Score Strategy:
+    สำหรับแต่ละภาพ-Prompt คู่ เราเก็บเฉพาะ Prediction ที่มี
+    Confidence สูงสุดเพียงค่าเดียว เนื่องจากเราสนใจว่าโมเดล
+    "มั่นใจที่สุดแค่ไหน" ว่าเจอวัตถุนั้นในภาพ
+  Error Handling:
+    หากภาพเสียหายหรืออ่านไม่ได้ ระบบจะคืนค่า pred_score = 0.0
+    และ pred_box = None แทนที่จะหยุดทำงานทั้งหมด
+    เพื่อให้ Batch Processing ทำงานต่อได้
+  ทำไมโค้ดถึงสั้น?
+    เพราะเราใช้โมเดล OWL-ViT สำเร็จรูปจาก HuggingFace
+    ไม่ได้เทรนโมเดลเอง (Inference-only) ดังนั้นงานหลักคือ
+    การเขียนท่อ (Pipeline) เชื่อมต่อ Input/Output อย่างถูกต้อง
+    ถ้าต้อง Fine-tune โมเดลเอง โค้ดจะยาวเป็น 10 เท่า
+
+---
+
+# ENGLISH VERSION
+---
+## 1. Role and Responsibilities
+---
+Person 2 serves as the Model Engineer, responsible for loading the
+Open-Vocabulary Object Detection model and executing inference across
+the entire dataset constructed by Person 1. The primary output is a
+CSV file containing predicted Bounding Boxes and Confidence Scores
+for each image-prompt pair, which serves as the input for Person 3
+(Verifier) and Person 4 (Evaluation).
+Files owned:
+  - models/detector.py                OWL-ViT inference pipeline script
+  - requirements.txt (updated)        Added tqdm for progress bar
+  - notebooks/colab_runner.ipynb      Added Steps 5-7 + Save/Restore cells
+---
+## 2. Model Selection
+---
+The project employs the OWL-ViT (Open-World Localization Vision
+Transformer) model, variant google/owlvit-base-patch32, sourced
+from the HuggingFace Model Hub.
+  Model Name    : OWL-ViT (Vision Transformer for Open-World Localization)
+  Developer     : Google Research
+  Variant       : google/owlvit-base-patch32
+  Category      : Open-Vocabulary Object Detection
+  Source        : HuggingFace Transformers Library
+  Model Size    : ~412 MB (Weights)
+  Input         : Image + Text Prompt
+  Output        : Bounding Box Coordinates + Confidence Score
+Rationale for choosing OWL-ViT:
+  - It is an Open-Vocabulary detector capable of detecting objects
+    from arbitrary text prompts without being limited to a fixed set
+    of training classes. This flexibility is precisely what introduces
+    the hallucination problem.
+  - Pre-trained weights are readily available on HuggingFace,
+    aligning with the project's Inference-only strategy.
+  - Full CUDA support for GPU-accelerated inference on Google Colab.
+  - Comprehensive documentation and active community support.
+---
+## 3. Model Architecture Overview
+---
+OWL-ViT operates on the principle of Vision-Language Alignment:
+  Image       --> ViT Encoder --> Image Embeddings --+
+                                                      |--> Matching --> Bounding Box
+  Text Prompt --> Text Encoder --> Text Embeddings --+              --> Confidence Score
+Processing Steps:
+## 1. Image Encoder (ViT):
+     Converts the input image into a feature vector (Image Embedding)
+     using a Vision Transformer that splits the image into 32x32
+     pixel patches.
+## 2. Text Encoder:
+     Converts the text prompt into a feature vector (Text Embedding).
+## 3. Matching & Detection:
+     Computes similarity between image and text embeddings to localise
+     regions in the image that best match the prompt, generating
+     bounding boxes with associated confidence scores.
+---
+## 4. Inference Pipeline Design
+---
+4.1 Class OWLViTDetector
+  The models/detector.py file implements a class-based architecture
+  that encapsulates all model operations:
+  Method         Responsibility
+  -------------- ----------------------------------------------------------
+  __init__()     Loads model and processor from HuggingFace with
+                 automatic GPU/CPU device detection
+  detect()       Accepts a single image + prompt, returns the highest
+                 confidence score and its corresponding bounding box
+4.2 Function process_dataset()
+  This function orchestrates the batch processing workflow:
+## 1. Reads the input CSV from Person 1 (hard_negative_dataset.csv)
+## 2. Iterates through each row, calling detect() per image-prompt
+       pair with a tqdm progress bar
+## 3. Collects results (Confidence Score + Bounding Box) into
+       new columns
+## 4. Saves the complete results as a new CSV file
+       (full_detection_results.csv)
+4.3 Device Management (GPU/CPU)
+  self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+  The code dynamically selects the optimal compute device:
+    Google Colab (T4 GPU) : Uses cuda  ~10-20 min for 5,000 images
+    Local (CPU)           : Uses cpu   ~3-4 hours, for testing only
+4.4 Operating Modes
+  Mode     Command          Input CSV                   Output CSV
+  -------- ---------------- --------------------------- ---------------------------
+  mockup   --mode mockup    mockup_dataset.csv (10)     mockup_detection_results.csv
+  full     --mode full      hard_negative_dataset.csv   full_detection_results.csv
+---
+## 5. Output Schema
+---
+The output file full_detection_results.csv extends Person 1's schema
+with two additional columns:
+  Column         Type                Source     Description
+  -------------- ------------------- ---------- ----------------------------
+  image_id       int                 Person 1   COCO image ID
+  image_path     str                 Person 1   Relative path to image file
+  prompt         str                 Person 1   Text prompt
+  true_label     int (0/1)           Person 1   Ground truth
+  supercategory  str                 Person 1   COCO supercategory
+  negative_type  str                 Person 1   Sample type
+  pred_score     float (0.0-1.0)     Person 2   Highest confidence from OWL-ViT
+  pred_box       list [x1,y1,x2,y2]  Person 2   Bounding box of best prediction
+  pred_score -> Used by Person 3 in threshold_verifier.py
+  pred_box   -> Used by Person 3 in clip_verifier.py (crop for CLIP)
+---
+## 6. Bug Fix Log
+---
+  Issue:
+    'OwlViTProcessor' has no attribute 'post_process_object_detection'
+  Root Cause:
+    API discrepancy between HuggingFace Transformers versions.
+    The post_process_object_detection method lives on the
+    image_processor sub-object, not the top-level processor wrapper.
+  Resolution:
+    Changed from:
+      self.processor.post_process_object_detection(...)
+    To:
+      self.processor.image_processor.post_process_object_detection(...)
+  ---
+  Issue:
+    Using device: cpu (extremely slow inference, ~4 hours)
+  Root Cause:
+    Colab Runtime was not configured with GPU acceleration.
+  Resolution:
+    Changed Runtime Type to T4 GPU via Colab menu:
+    Runtime -> Change runtime type -> T4 GPU
+---
+## 7. Deliverables Summary
+---
+  File                               Status      Description
+  ---------------------------------- ----------- ----------------------------
+  models/detector.py                 Complete    OWL-ViT Inference Pipeline
+  requirements.txt (updated)         Complete    Added tqdm>=4.65.0
+  notebooks/colab_runner.ipynb       Complete    Added Steps 5-7 + Save/Restore
+---
+## 8. Performance Considerations
+---
+  Post-processing Threshold at 0.0:
+    The detection threshold is intentionally set to 0.0 to capture
+    all predictions, including those with very low confidence. This
+    design decision delegates the final hallucination classification
+    to Person 3's verifiers, preserving maximum flexibility in
+    threshold tuning.
+  Best Score Strategy:
+    For each image-prompt pair, only the prediction with the highest
+    confidence score is retained. This reflects the research question:
+    "How confident is the model at its best guess?"
+  Graceful Error Handling:
+    If an image is corrupted or unreadable, the system returns
+    pred_score = 0.0 and pred_box = None rather than terminating
+    the entire pipeline, ensuring robust batch processing.
+  Why is the code so short?
+    Because we use a pre-trained OWL-ViT model from HuggingFace
+    in inference-only mode (no fine-tuning). The core engineering
+    task is building a correct input/output pipeline, not training
+    the model. If fine-tuning were required, the codebase would be
+    approximately 10x larger.
