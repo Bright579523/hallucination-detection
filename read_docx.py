@@ -13,5 +13,7 @@ def read_docx(path):
                 text.append(p_text)
         return '\n'.join(text)
 
-with open('output.txt', 'w', encoding='utf-8') as f:
-    f.write(read_docx('AR_hallucination_proposal_v3.docx'))
+doc_path = 'report/ARM_hallucination_proposal_v5.docx'
+output_path = 'output_v5.txt'
+with open(output_path, 'w', encoding='utf-8') as f:
+    f.write(read_docx(doc_path))
