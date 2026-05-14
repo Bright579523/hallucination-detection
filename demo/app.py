@@ -261,7 +261,18 @@ def build_demo(share=False, data_dir=None):
 
     theme = gr.themes.Soft(primary_hue="purple", neutral_hue="slate")
 
-    with gr.Blocks(theme=theme, css=CUSTOM_CSS,
+    # Force English UI regardless of browser language
+    force_english_js = """
+    () => {
+        try {
+            Object.defineProperty(navigator, 'language', {get: () => 'en-US'});
+            Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+        } catch(e) {}
+        document.documentElement.setAttribute('lang', 'en');
+    }
+    """
+
+    with gr.Blocks(theme=theme, css=CUSTOM_CSS, js=force_english_js,
                    title="Hallucination Detection Dashboard") as demo:
 
         # ── Hero Header ──
@@ -440,7 +451,7 @@ def build_demo(share=False, data_dir=None):
         </div>
         """)
 
-    demo.launch(share=share)
+    demo.launch(share=share, show_api=False)
 
 
 if __name__ == "__main__":
