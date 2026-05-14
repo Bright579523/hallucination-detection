@@ -116,7 +116,7 @@ class HallucinationDetector:
 
     def detect_and_verify(self, image, prompt, conf_threshold=0.15, clip_threshold=0.22):
         if image is None or not prompt.strip():
-            return None, None, "<p style='color:#ff6b6b;'>⚠️ Please upload an image and enter a text prompt.</p>"
+            return None, None, "<div style='background:rgba(255,170,0,0.1); border:1px solid #ffaa00; padding:15px; border-radius:8px; color:#ffd000;'>⚠️ Please upload an image and enter a text prompt before analyzing.</div>"
 
         if not isinstance(image, Image.Image):
             image = Image.fromarray(image)
@@ -271,6 +271,9 @@ def build_demo(share=False, data_dir=None):
             <p style="font-size:1.05rem;color:#d0d3e5!important;margin-top:6px;">
                 Detecting false object detections in OWL-ViT caused by misleading text prompts
             </p>
+            <p style="color:#44ff44; font-size:0.9rem; margin-top:8px;">
+               <strong>💡 Real-world Applications:</strong> Autonomous Driving Safety QA, Automated E-commerce Tagging, Medical Imaging Verification
+            </p>
         </div>
         """)
 
@@ -301,16 +304,21 @@ def build_demo(share=False, data_dir=None):
                                                     info="Minimum cosine similarity to pass")
                         run_btn = gr.Button("🔍 Analyze Hallucination", variant="primary", size="lg")
 
-                        gr.Markdown("""
-                        > 💡 **Tip:** Try uploading a photo of a dog and prompt
-                        > `"a photo of wolf"` to test hard-negative hallucination.
-                        """)
+                        gr.Examples(
+                            examples=[
+                                ["demo/examples/dog.jpg", "a photo of a dog", 0.15, 0.22],
+                                ["demo/examples/dog.jpg", "a photo of a wolf", 0.15, 0.22],
+                                ["demo/examples/empty_room.jpg", "a cat", 0.15, 0.22]
+                            ],
+                            inputs=[input_image, input_prompt, conf_slider, clip_slider],
+                            label="⚡ Click an example below to test instantly (Highly Recommended!)"
+                        )
 
                     # Right: Outputs
                     with gr.Column(scale=2):
                         gr.Markdown("### 📤 Detection & Verification")
-                        output_image = gr.Image(label="🖼️ Detection Result", height=300)
-                        output_html = gr.HTML(label="Analysis")
+                        output_html = gr.HTML(label="Analysis Result")
+                        output_image = gr.Image(label="🖼️ Detection Evidence", height=300)
                         with gr.Accordion("🔬 What CLIP Sees (Cropped Region)", open=False):
                             gr.Markdown(
                                 "*The cropped bounding-box region that V2 (CLIP) analyzes. "
